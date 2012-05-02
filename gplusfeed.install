@@ -1,0 +1,16 @@
+<?php
+
+/**
+ * @file gplusfeed.install
+ * Contains install and update functions for the GPlusFeed module
+ */
+
+/**
+ * GPlusFeed module schema;
+ */
+function gplusfeed_schema() {
+  // Borrow the structure from Drupal's system cache
+  $schema['cache_gplusfeed'] = drupal_get_schema_unprocessed('system', 'cache');
+  $schema['cache_gplusfeed']['description'] = 'Cache table for GPlusFeed module. Prevents insane numbers of API calls.';
+  return $schema;
+}

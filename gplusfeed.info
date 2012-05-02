@@ -1,0 +1,15 @@
+; $Id$
+name = GPlusFeed
+description = "Retrieve a user's public feed from G+ API v1"
+
+; Core version (required)
+core = 7.x
+
+; Package name (see http://drupal.org/node/101009 for a list of names)
+package = Third party
+
+; PHP version requirement (optional)
+php = 5.2
+
+; Module dependencies
+; dependencies[] = NONE

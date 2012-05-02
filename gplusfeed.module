@@ -1,0 +1,244 @@
+<?php
+//s $Id$
+
+/**
+ * @file
+ * This module grabs a user's public stream from Google+, and
+ * provides the result in a nicely organised table.
+ *
+ * @author: Alex Shepherd (n00bsys0p) <http://n00bsys0p.co.uk>
+ */
+
+/**
+ * Defining constants.
+ */
+ 
+// Since the API address may change, let's keep it up front as a constant.
+define('GPLUS_API_URL', 'https://www.googleapis.com/plus/v1');
+
+// The API key,userid, and post limit we need to retrieve the stream
+define('GPLUS_API_KEY', variable_get('gplus_api_key', ''));
+define('GPLUS_USERID', variable_get('gplus_userid', ''));
+define('GPLUS_NUM_POSTS', variable_get('gplus_num_posts',''));
+
+// This is the time in seconds that our cached items should live.
+define('GPLUS_CACHE_EXPIRE', 3600);
+
+/**
+ * Implementation of hook_permission().
+ * 
+ * This is where we define the permission levels associated with this module.
+ */
+function gplusfeed_permission() {
+  return array('administer gplusfeed');
+}
+
+/**
+ * Implementation of hook_flush_caches().
+ * 
+ * We need to define our cache table to get flushed with clear cache commands are executed.
+ */
+function gplusfeed_flush_caches() {
+  return array('cache_gplusfeed');
+}
+
+/**
+ * Implementation of hook_menu().
+ * 
+ * This defines our internal paths and the callback functions for each of them.
+ */
+function gplusfeed_menu() {
+  $items = array();
+
+  // This defines the path for our admin settings page.
+  $items['admin/config/services/gplusfeed'] = array(
+    'title' => 'GPlusFeed settings',
+    'description' => 'Configure the GPlusFeed module.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('form_gplusfeed_settings'),
+    'access arguments' => array('administer gplusfeed')
+  );
+  
+  return $items;
+}
+
+
+/**
+ * Callback function for GPlusFeed admin settings.
+ */
+function form_gplusfeed_settings() {
+
+  // Define our settings fields using Drupal's Forms API
+  $form['gplus_api_key'] = array(
+    '#type' => 'textfield',
+    '#title' => t('API Key'),
+    '#description' => t('Your API key from !gplus', array('!gplus' => l('Google+', 'https://developers.google.com/+/api/'))),
+    '#size' => 60,
+    '#maxlength' => 255,
+    '#default_value' => variable_get('gplus_api_key', ''),
+    '#required' => TRUE, 
+  );
+  
+  $form['gplus_userid'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Google+ User ID'),
+    '#description' => t('The !gplus user ID for the account you want use.', array('!gplus' => l('Google+', 'https://plus.google.com'))),
+    '#size' => 40,
+    '#maxlength' => 255,
+    '#default_value' => variable_get('gplus_userid', ''),
+    '#required' => TRUE,
+  );
+
+  $form['gplus_num_posts']   = array(
+    '#type' => 'select',
+    '#title' => t('Post settings'),
+    '#description' => t('Number of recent posts to show in the GPlusFeed block'),
+    '#options' => array(1 => 1, 10 => 10, 20 => 20, 50 => 50, 75 => 75, 100 => 100),
+    '#default_value' => variable_get('gplus_num_posts', '20'),
+    '#required' => TRUE,
+  );
+
+  return system_settings_form($form);
+
+}
+
+/**
+ * Implementation of hook_block_info()
+ */
+function gplusfeed_block_info() {
+  $blocks['recent'] = array(
+    'info' => t('GPlusFeed block'),
+    'cache' => DRUPAL_CACHE_PER_ROLE // Default
+  );
+
+  return $blocks;
+}
+
+/**
+ * Implementation of hook_block_view()
+ *
+ * Set up the block/table
+ */
+function gplusfeed_block_view($delta = '') {
+  // Set variables
+  $limit = GPLUS_NUM_POSTS;
+  $block = array();
+  $headers = array();
+  $items = array();
+
+  if(GPLUS_USERID == '' || GPLUS_API_KEY == '') {
+    $headers = array(array('data' => 'Posts'));
+    $items = 'Please configure module before use.';
+    $block['content'] = theme('table', array(
+                                         'header' => $headers,
+                                         'rows' => $items,
+                                         'attributes' => array(),
+                                         'sticky' => false,
+                                         'caption' => '',
+                                         'colgroups' => array(),
+                                         'empty' => t('No data available: '.$delta)
+                                         ));
+    return $block;
+  }
+
+  // Build content dependent on block type
+  switch($delta) {
+    case 'recent':
+      // Build the Recently Played block
+      $block['subject'] = t('Recent G+ Posts');
+      if(user_access('access content')) {
+        $result = gplusfeed_get_object(array('maxResults' => $limit),
+                                       true);
+
+        if(empty($result) or property_exists($result, 'error')) {
+          if(property_exists($result, 'error')) {
+            $error_string = '';
+            foreach($result->error->errors as $error) {
+              $error_string .= 'Error: '.$error->message.'<br />';
+            }
+            $block['content'] = t($error_string);
+          } else {
+            $block['content'] = t('No data available');
+          }
+        } else {
+          $res = $result->items;
+          foreach($res as $item) {
+            // Retrieve information from the retrieved data
+            $title = $item->title;
+            $published = substr($item->published, 0, strpos($item->published, '.'));
+            $published = str_replace('-', '/', $published);
+            $published = str_replace('T', ' - ', $published);
+            $url = $item->url;
+
+            // Configure the contents of the table
+            $headers = array(array('data' => 'Posts'));
+
+            $text = $title.'<br />';
+            $text .= $published;
+
+            $items[] = array(
+                         l($text, $url, array('html' => true,
+                                              'attributes' => array(
+                                                                'target' => '_blank')))
+                         );
+            }
+            $block['content'] = theme('table', array(
+                                                 'header' => $headers,
+                                                 'rows' => $items,
+                                                 'attributes' => array(),
+                                                 'sticky' => false,
+                                                 'caption' => '',
+                                                 'colgroups' => array(),
+                                                 'empty' => t('No data available: '.$delta)
+                                                 ));
+        }
+      }
+      break;
+  }
+  return $block;
+}
+
+/**
+ * Retrieve information from G+ API.
+ *
+ * Some caching done here too.
+ *
+ **/
+function gplusfeed_get_object($params = array(), $no_cache = FALSE) {
+  // Create a string of params from the params array
+  $param_keys = array_keys($params);
+  $param_values = array();
+  foreach($param_keys as $key) {
+    $param_values[] = sprintf('%s=%s', $key, $params[$key]);
+  }
+  $param_string='&'.implode('&', $param_values);
+
+  // If not suppressing caching, create identifier and retrieve a cached copy if it exists
+  if($no_cache) {
+    $cache_id = substr('gplusfeed_'.str_replace(array('/', '&', '='), '_', $param_string), 0, 255);
+    $cached = cache_get($cache_id, 'cache_gplusfeed');
+  } else {
+    $cached = false;
+  }
+
+  // If no cached available, make G+ API call
+  if(!$cached || $no_cache) {
+    $url = sprintf('%s/people/%s/activities/public?key=%s%s', GPLUS_API_URL, GPLUS_USERID, GPLUS_API_KEY, $param_string);
+    error_log('PARAMS: '.$param_string);
+    error_log('URL: '.$url);
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    $response_body = curl_exec($ch);
+    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    // If not suppressing caching, save copy to the cache table
+    if(!$no_cache) {
+      cache_set($cache_id, $response_body, 'cache_gplusfeed', time() + LASTFM_CACHE_EXPIRE);
+    }
+  } else {
+    $response_body = $cached->data;    
+  }
+
+  return json_decode($response_body);
+}
