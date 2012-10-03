@@ -30,7 +30,11 @@ define('GPLUS_CACHE_EXPIRE', 3600);
  * This is where we define the permission levels associated with this module.
  */
 function gplusfeed_permission() {
-  return array('administer gplusfeed');
+  return array('administer gplusfeed' => array(
+      'title' => 'Administer GPlusFeed module',
+      'description' => 'Administer GPlusFeed module settings.',
+    ),
+  );
 }
 
 /**
